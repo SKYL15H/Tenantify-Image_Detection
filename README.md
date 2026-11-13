@@ -1,3 +1,13 @@
+---
+title: Tenantify Food Authenticity API
+emoji: 🍽️
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # 🍽️ Tenantify — AI Food Authenticity Detection Service
 
 Layanan deteksi keaslian foto makanan untuk platform **Tenantify**. Modul ini memverifikasi apakah foto menu yang diunggah oleh calon mitra/tenant adalah **foto makanan asli** (hasil jepretan kamera/ponsel dengan pencahayaan alami) atau **gambar buatan AI** (Midjourney, DALL-E, Stable Diffusion, dll. yang memiliki tekstur plastik/hyper-realistic buatan).
@@ -17,6 +27,7 @@ Layanan deteksi keaslian foto makanan untuk platform **Tenantify**. Modul ini me
 
 ```text
 Tenantify-Image Detection/
+├── Dockerfile            # Konfigurasi container untuk deploy ke Hugging Face Spaces / Docker
 ├── api.py                # REST API Service (FastAPI + Swagger Docs di /docs)
 ├── app.py                # Web Interface interaktif (Streamlit)
 ├── detector.py           # Core Logic & Model Detector (OpenAI CLIP Zero-Shot)
@@ -26,7 +37,7 @@ Tenantify-Image Detection/
 ├── .env.example          # Template konfigurasi environment
 ├── .env                  # Variabel environment lokal (diabaikan oleh git)
 ├── .gitignore            # Aturan file yang tidak di-push ke git
-└── README.md             # Dokumentasi teknis proyek
+└── README.md             # Dokumentasi teknis proyek (lengkap dengan metadata HF Spaces)
 ```
 
 ---
@@ -223,7 +234,48 @@ curl -X POST "http://localhost:8000/api/v1/verify-food" \
 
 ---
 
-## ☁️ Panduan Deploy ke Streamlit Cloud
+## ☁️ Panduan Deploy ke Hugging Face Spaces
+
+Deploy ke **Hugging Face Spaces** memberikan resource gratis **2 vCPU & 16 GB RAM** (jauh lebih lega dibanding platform lain untuk model AI).
+
+Ada 2 opsi deploy di Hugging Face:
+
+### Opsi 1: Deploy REST API (FastAPI) via Docker Space (Rekomendasi)
+Ini membuat API live dengan endpoint HTTPS publik yang langsung bisa ditembak oleh fullstack developer dari frontend manapun.
+
+1. Buka [huggingface.co/new-space](https://huggingface.co/new-space).
+2. Isi nama Space, misal: `tenantify-food-detection`.
+3. Pilih **Space SDK: Docker** (Blank template).
+4. Pilih **Space hardware: CPU basic (2 vCPU · 16 GB RAM · Free)**.
+5. Set visibilitas ke **Public** lalu klik **Create Space**.
+6. Hubungkan repository GitHub Anda ke Space tersebut:
+   * **Cara A (Push langsung lewat Git remote HF)**:
+     ```bash
+     git remote add space https://huggingface.co/spaces/<username>/<space-name>
+     git push space main
+     ```
+   * **Cara B (Import GitHub)**: Pada menu settings di HF Space, Anda bisa memilih sync repository GitHub.
+7. Hugging Face akan otomatis membaca [`Dockerfile`](file:///d:/Project/Hackathon/Tenantify-Image%20Detection/Dockerfile) dan mem-build container pada port 7860.
+8. Setelah status **Running**, endpoint API publik Anda siap digunakan:
+   * **Swagger Docs**: `https://<username>-<space-name>.hf.space/docs`
+   * **Verify Endpoint**: `https://<username>-<space-name>.hf.space/api/v1/verify-food`
+
+---
+
+### Opsi 2: Deploy Web UI Interaktif (Streamlit)
+Jika hanya ingin menampilkan visual web Streamlit di Hugging Face:
+1. Buka [huggingface.co/new-space](https://huggingface.co/new-space).
+2. Pilih **Space SDK: Streamlit**.
+3. Di file `README.md`, ubah baris metadata header:
+   ```yaml
+   sdk: streamlit
+   app_file: app.py
+   ```
+4. Push kode Anda ke repository Space.
+
+---
+
+## ☁️ Alternatif Deploy ke Streamlit Cloud
 
 1. Pastikan seluruh perubahan sudah ter-push ke GitHub:
    ```bash
