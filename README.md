@@ -10,7 +10,7 @@ pinned: false
 license: mit
 ---
 
-# 🍽️ Tenantify — AI Food Authenticity Detection Service
+#  Tenantify — AI Food Authenticity Detection Service
 
 Layanan deteksi keaslian foto makanan untuk platform **Tenantify**. Modul ini memverifikasi apakah foto menu yang diunggah oleh calon mitra/tenant adalah **foto makanan asli** (hasil jepretan kamera/ponsel dengan pencahayaan alami) atau **gambar buatan AI** (Midjourney, DALL-E, Stable Diffusion, dll. yang memiliki tekstur plastik/hyper-realistic buatan).
 

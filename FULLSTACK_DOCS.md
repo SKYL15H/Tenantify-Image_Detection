@@ -243,3 +243,4 @@ export default function FoodUploadVerifier() {
 1. **Cold-Start ZeroGPU**: Saat request pertama setelah Space dalam keadaan idle (tidur), sistem membutuhkan sekitar ~2 hingga 4 detik untuk mengalokasikan GPU Nvidia A100. Setelah aktif, request berikutnya berjalan sangat cepat (< 500ms).
 2. **Ukuran File**: Disarankan ukuran foto maksimal 5 MB untuk mempercepat proses upload jaringan.
 3. **Format**: Format `.jpg`, `.jpeg`, `.png`, dan `.webp` didukung penuh.
+
