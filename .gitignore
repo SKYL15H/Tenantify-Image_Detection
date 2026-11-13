@@ -1,0 +1,64 @@
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Jupyter Notebook checkpoints & cache
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+# Machine Learning & Hugging Face Cache / Model Checkpoints
+.cache/
+hf_cache/
+*.pt
+*.pth
+*.bin
+*.onnx
+*.safetensors
+*.ckpt
+
+# Compressed archives & temporary uploads
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# Temporary folders
+IMAGE_PATH/
+ai slop gay/
+
+# Output & Result Files
+outputs/
+runs/
+hasil_deteksi.csv
+*.log
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Operating System files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
