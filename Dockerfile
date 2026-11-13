@@ -25,3 +25,4 @@ EXPOSE 7860
 
 # Jalankan FastAPI REST API server
 CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "7860"]
+
