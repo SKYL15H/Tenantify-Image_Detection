@@ -17,10 +17,12 @@ Layanan deteksi keaslian foto makanan untuk platform **Tenantify**. Modul ini me
 
 ```text
 Tenantify-Image Detection/
-├── app.py                # Web interface (Streamlit) & Core Logic Detector
+├── api.py                # REST API Service (FastAPI + Swagger Docs di /docs)
+├── app.py                # Web Interface interaktif (Streamlit)
+├── detector.py           # Core Logic & Model Detector (OpenAI CLIP Zero-Shot)
 ├── detect_food.ipynb     # Jupyter Notebook (lingkungan riset/eksperimen awal)
 ├── folder_foto/          # Kumpulan dataset sampel foto untuk pengujian
-├── requirements.txt      # Daftar dependensi Python
+├── requirements.txt      # Daftar dependensi Python (FastAPI, Uvicorn, Torch, Streamlit, dll.)
 ├── .env.example          # Template konfigurasi environment
 ├── .env                  # Variabel environment lokal (diabaikan oleh git)
 ├── .gitignore            # Aturan file yang tidak di-push ke git
@@ -96,84 +98,127 @@ Sistem menggunakan teknik **Zero-shot Classification** dengan model multimodal *
 
 ---
 
-## 🔌 Kontrak Data & Panduan Integrasi (API / Backend)
+## 🔌 Panduan Menjalankan REST API (FastAPI)
 
-Jika tim backend (Node.js/Express, Laravel, FastAPI, Go, dll.) ingin menghubungkan sistem ini ke alur registrasi tenant, ada dua opsi integrasi:
+Service ini sudah menyediakan REST API berbasis **FastAPI** (`api.py`) dengan dukungan CORS aktif, cocok untuk dihubungkan langsung ke frontend (Next.js/React/Vue/Mobile) maupun backend utama (Express, NestJS, Laravel, Golang, dsb.).
 
-### Opsi A: Import Langsung di Python
-Fullstack/Backend developer dapat langsung mengimpor kelas `FoodAuthenticityDetector` dari `app.py`:
+### 1. Menjalankan Server API
 
-```python
-from app import FoodAuthenticityDetector, verdict
+```powershell
+# Jalankan langsung dengan Python:
+python api.py
 
-# Inisialisasi detector (cukup 1x saat server start)
-detector = FoodAuthenticityDetector()
-
-# Load gambar dari path file atau buffer bytes
-image = detector.load_image("path/ke/foto_tenant.jpg")
-
-if image:
-    # Prediksi
-    result = detector.predict(image)
-    label, status = verdict(result, threshold=0.70)
-
-    print("Hasil:", label)         # e.g. "📸 MAKANAN ASLI"
-    print("Prob Asli:", result["real"])  # e.g. 0.932
-    print("Prob AI:", result["ai"])      # e.g. 0.068
+# Atau gunakan Uvicorn:
+uvicorn api:app --reload --host 0.0.0.0 --port 8000
 ```
+Server akan berjalan di `http://localhost:8000`.
 
-### Opsi B: Membungkus Menjadi REST API (Contoh FastAPI)
-Jika backend utama menggunakan bahasa non-Python (Express/NestJS/Laravel), modul ini bisa dibungkus dengan FastAPI dalam 1 file `api.py`:
+### 2. Dokumentasi Interaktif (Swagger UI)
+Kunjungi browser di:
+* **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
+* **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
-```python
-# api.py
-from fastapi import FastAPI, UploadFile, File, Form
-from app import FoodAuthenticityDetector, verdict
-import io
+---
 
-app = FastAPI(title="Tenantify Image Authenticity API")
-detector = FoodAuthenticityDetector()
+### 3. Daftar Endpoint API
 
-@app.post("/api/v1/verify-food")
-async def verify_food(
-    file: UploadFile = File(...),
-    threshold: float = Form(0.70)
-):
-    contents = await file.read()
-    image = detector.load_image(io.BytesIO(contents))
-    
-    if image is None:
-        return {"success": False, "message": "Format gambar tidak valid"}
+#### A. Verifikasi 1 Foto Makanan
+* **URL**: `POST /api/v1/verify-food`
+* **Content-Type**: `multipart/form-data`
+* **Body Form**:
+  * `file`: File gambar (`.jpg`, `.jpeg`, `.png`, `.webp`) — *Required*
+  * `threshold`: `0.70` (float) — *Optional*
 
-    result = detector.predict(image)
-    label, status = verdict(result, threshold=threshold)
-
-    return {
-        "success": True,
-        "filename": file.filename,
-        "verdict": label,
-        "status": status,  # "success", "error" (AI detected), "warning" (uncertain)
-        "confidence": {
-            "real": round(result["real"], 4),
-            "ai": round(result["ai"], 4),
-        },
-        "is_authentic": result["real"] >= threshold
-    }
-```
-
-#### Contoh JSON Response yang Dihasilkan:
+**Contoh Response:**
 ```json
 {
   "success": true,
-  "filename": "nasi_goreng_tenant1.jpg",
+  "filename": "nasi_goreng_tenant.jpg",
   "verdict": "📸 MAKANAN ASLI",
   "status": "success",
+  "is_authentic": true,
   "confidence": {
     "real": 0.9412,
     "ai": 0.0588
   },
-  "is_authentic": true
+  "threshold_used": 0.70
 }
+```
+
+#### B. Verifikasi Banyak Foto Sekaligus (Batch)
+* **URL**: `POST /api/v1/verify-food/batch`
+* **Content-Type**: `multipart/form-data`
+* **Body Form**:
+  * `files`: Daftar file gambar — *Required*
+  * `threshold`: `0.70` (float) — *Optional*
+
+**Contoh Response:**
+```json
+{
+  "success": true,
+  "summary": {
+    "total_images": 2,
+    "authentic_count": 1,
+    "ai_count": 1,
+    "uncertain_count": 0
+  },
+  "results": [
+    {
+      "success": true,
+      "filename": "menu_real.jpg",
+      "verdict": "📸 MAKANAN ASLI",
+      "status": "success",
+      "is_authentic": true,
+      "confidence": { "real": 0.92, "ai": 0.08 },
+      "threshold_used": 0.70
+    },
+    {
+      "success": true,
+      "filename": "menu_ai.jpg",
+      "verdict": "🤖 BUATAN AI",
+      "status": "error",
+      "is_authentic": false,
+      "confidence": { "real": 0.12, "ai": 0.88 },
+      "threshold_used": 0.70
+    }
+  ]
+}
+```
+
+---
+
+### 4. Contoh Pemanggilan dari Frontend (JavaScript / TypeScript / Next.js)
+
+```typescript
+// Contoh implementasi di Frontend / Client
+async function verifyFoodImage(imageFile: File, threshold: number = 0.70) {
+  const formData = new FormData();
+  formData.append("file", imageFile);
+  formData.append("threshold", threshold.toString());
+
+  const response = await fetch("http://localhost:8000/api/v1/verify-food", {
+    method: "POST",
+    body: formData,
+  });
+
+  const data = await response.json();
+  if (data.is_authentic) {
+    console.log("Foto valid & asli:", data.confidence.real);
+  } else {
+    alert(`Peringatan: Gambar terdeteksi ${data.verdict}`);
+  }
+  return data;
+}
+```
+
+---
+
+### 5. Contoh Pemanggilan via cURL
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/verify-food" \
+     -F "file=@folder_foto/AI-1.jpg" \
+     -F "threshold=0.70"
 ```
 
 ---
