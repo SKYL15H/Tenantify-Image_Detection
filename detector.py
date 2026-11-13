@@ -55,9 +55,19 @@ class FoodAuthenticityDetector:
 
     @torch.no_grad()
     def predict(self, image: Image.Image) -> dict:
+        # Dukung dinamisasi ZeroGPU (deteksi CUDA saat @spaces.GPU aktif)
+        active_device = "cuda" if torch.cuda.is_available() else self.device
+        try:
+            current_model_device = next(self.model.parameters()).device.type
+            if current_model_device != active_device:
+                self.model.to(active_device)
+                self.device = active_device
+        except Exception:
+            pass
+
         inputs = self.processor(
             text=self.prompts, images=image, return_tensors="pt", padding=True
-        ).to(self.device)
+        ).to(active_device)
 
         logits = self.model(**inputs).logits_per_image[0]
         real_score = logits[: self.n_real].mean()

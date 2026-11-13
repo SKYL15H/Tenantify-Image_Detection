@@ -1,11 +1,13 @@
 ---
-title: Tenantify Food Authenticity API
+title: Tenantify Food Authenticity Detection
 emoji: 🍽️
 colorFrom: blue
 colorTo: indigo
-sdk: docker
-app_port: 7860
+sdk: gradio
+sdk_version: 5.20.0
+app_file: app.py
 pinned: false
+license: mit
 ---
 
 # 🍽️ Tenantify — AI Food Authenticity Detection Service
@@ -27,17 +29,17 @@ Layanan deteksi keaslian foto makanan untuk platform **Tenantify**. Modul ini me
 
 ```text
 Tenantify-Image Detection/
-├── Dockerfile            # Konfigurasi container untuk deploy ke Hugging Face Spaces / Docker
-├── api.py                # REST API Service (FastAPI + Swagger Docs di /docs)
-├── app.py                # Web Interface interaktif (Streamlit)
+├── app.py                # Entrypoint Utama Hugging Face Spaces (Gradio + Dukungan ZeroGPU)
+├── api.py                # REST API Service mandiri (FastAPI + Swagger Docs di /docs)
+├── streamlit_app.py      # Alternatif Web Interface lokal (Streamlit)
 ├── detector.py           # Core Logic & Model Detector (OpenAI CLIP Zero-Shot)
 ├── detect_food.ipynb     # Jupyter Notebook (lingkungan riset/eksperimen awal)
 ├── folder_foto/          # Kumpulan dataset sampel foto untuk pengujian
-├── requirements.txt      # Daftar dependensi Python (FastAPI, Uvicorn, Torch, Streamlit, dll.)
+├── requirements.txt      # Daftar dependensi Python (Gradio, Torch, FastAPI, Transformers, dll.)
 ├── .env.example          # Template konfigurasi environment
 ├── .env                  # Variabel environment lokal (diabaikan oleh git)
 ├── .gitignore            # Aturan file yang tidak di-push ke git
-└── README.md             # Dokumentasi teknis proyek (lengkap dengan metadata HF Spaces)
+└── README.md             # Dokumentasi teknis proyek & metadata konfigurasi Hugging Face Spaces
 ```
 
 ---
@@ -234,62 +236,90 @@ curl -X POST "http://localhost:8000/api/v1/verify-food" \
 
 ---
 
-## ☁️ Panduan Deploy ke Hugging Face Spaces
+## ☁️ Panduan Deploy ke Hugging Face Spaces (Gradio + ZeroGPU)
 
-Deploy ke **Hugging Face Spaces** memberikan resource gratis **2 vCPU & 16 GB RAM** (jauh lebih lega dibanding platform lain untuk model AI).
+Konfigurasi repository ini sudah disesuaikan dengan **Hugging Face Spaces** menggunakan **Gradio SDK**, lisensi **MIT**, dan akselerasi **ZeroGPU** (NVIDIA A100 dinamis saat inferensi).
 
-Ada 2 opsi deploy di Hugging Face:
-
-### Opsi 1: Deploy REST API (FastAPI) via Docker Space (Rekomendasi)
-Ini membuat API live dengan endpoint HTTPS publik yang langsung bisa ditembak oleh fullstack developer dari frontend manapun.
-
-1. Buka [huggingface.co/new-space](https://huggingface.co/new-space).
-2. Isi nama Space, misal: `tenantify-food-detection`.
-3. Pilih **Space SDK: Docker** (Blank template).
-4. Pilih **Space hardware: CPU basic (2 vCPU · 16 GB RAM · Free)**.
-5. Set visibilitas ke **Public** lalu klik **Create Space**.
-6. Hubungkan repository GitHub Anda ke Space tersebut:
-   * **Cara A (Push langsung lewat Git remote HF)**:
-     ```bash
-     git remote add space https://huggingface.co/spaces/<username>/<space-name>
-     git push space main
-     ```
-   * **Cara B (Import GitHub)**: Pada menu settings di HF Space, Anda bisa memilih sync repository GitHub.
-7. Hugging Face akan otomatis membaca [`Dockerfile`](file:///d:/Project/Hackathon/Tenantify-Image%20Detection/Dockerfile) dan mem-build container pada port 7860.
-8. Setelah status **Running**, endpoint API publik Anda siap digunakan:
-   * **Swagger Docs**: `https://<username>-<space-name>.hf.space/docs`
-   * **Verify Endpoint**: `https://<username>-<space-name>.hf.space/api/v1/verify-food`
+### 1. Buat Space di Hugging Face
+1. Buka [**huggingface.co/new-space**](https://huggingface.co/new-space).
+2. **Space name**: misal `tenantify-food-detection`.
+3. **License**: Pilih `mit`.
+4. **Space SDK**: Pilih **Gradio** (bukan Docker).
+5. **Space hardware**: Pilih **ZeroGPU** (atau *CPU basic* jika ZeroGPU belum diaktifkan).
+6. **Visibility**: Pilih **Public**.
+7. Klik **Create Space**.
 
 ---
 
-### Opsi 2: Deploy Web UI Interaktif (Streamlit)
-Jika hanya ingin menampilkan visual web Streamlit di Hugging Face:
-1. Buka [huggingface.co/new-space](https://huggingface.co/new-space).
-2. Pilih **Space SDK: Streamlit**.
-3. Di file `README.md`, ubah baris metadata header:
-   ```yaml
-   sdk: streamlit
-   app_file: app.py
-   ```
-4. Push kode Anda ke repository Space.
+### 2. Push Kode ke Hugging Face Space
+
+Jalankan perintah berikut di terminal:
+
+```powershell
+# 1. Tambahkan remote Hugging Face Space (ganti <username> dan <nama-space>)
+git remote add hf https://huggingface.co/spaces/<username>/<nama-space>
+
+# 2. Push kode ke branch main Hugging Face
+git push hf main
+```
+*(Gunakan Hugging Face Access Token sebagai password jika diminta autentikasi).*
+
+Setelah push, Hugging Face akan otomatis menginstall dependensi dari `requirements.txt` dan menjalankan `app.py` dengan ZeroGPU!
 
 ---
 
-## ☁️ Alternatif Deploy ke Streamlit Cloud
+### 3. Cara Fullstack Developer Mengakses API dari Gradio Space
 
-1. Pastikan seluruh perubahan sudah ter-push ke GitHub:
-   ```bash
-   git add .
-   git commit -m "feat: complete app and documentation"
-   git push origin main
-   ```
-2. Kunjungi [share.streamlit.io](https://share.streamlit.io/).
-3. Login menggunakan akun GitHub.
-4. Klik **New app**, pilih repository `Tenantify-Image_Detection`, branch `main`, dan Main file path `app.py`.
-5. Klik **Deploy!**
+Gradio di Hugging Face Spaces otomatis menyediakan API endpoint gratis tanpa perlu backend tambahan!
+
+#### A. Menggunakan JavaScript / TypeScript (`@gradio/client`) — Rekomendasi Next.js / React:
+```bash
+npm install @gradio/client
+```
+```typescript
+import { Client } from "@gradio/client";
+
+// Sambungkan ke Space Hugging Face Anda
+const client = await Client.connect("<username>/<nama-space>");
+
+// Kirim gambar (File/Blob) dan ambang batas (threshold)
+const result = await client.predict("/predict", {
+  image: imageBlob,
+  threshold: 0.70,
+});
+
+// data[2] berisi respon JSON terstruktur
+console.log(result.data[2]);
+/*
+{
+  success: true,
+  verdict: "📸 MAKANAN ASLI",
+  status: "success",
+  is_authentic: true,
+  confidence: { real: 0.9412, ai: 0.0588 },
+  threshold_used: 0.70
+}
+*/
+```
+
+#### B. Menggunakan Python Client (`gradio_client`):
+```bash
+pip install gradio_client
+```
+```python
+from gradio_client import Client, handle_file
+
+client = Client("<username>/<nama-space>")
+result = client.predict(
+    image=handle_file("path/to/food.jpg"),
+    threshold=0.70,
+    api_name="/predict"
+)
+print(result[2])  # Respon dict / JSON
+```
 
 ---
 
 ## 👥 Tim & Hak Cipta
-Dikembangkan untuk proyek **Tenantify** — Hak Cipta © 2026.
+Lisensi: **MIT** — Dikembangkan untuk proyek **Tenantify** © 2026.
 

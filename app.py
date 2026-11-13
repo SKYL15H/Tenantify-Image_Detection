@@ -1,225 +1,226 @@
-import io
 import os
 from pathlib import Path
 from typing import Optional
 
-import pandas as pd
-import streamlit as st
-import torch
-from dotenv import load_dotenv
+import gradio as gr
+from PIL import Image
 
 from detector import (
     DEFAULT_MODEL_NAME,
     DEFAULT_THRESHOLD,
-    IMAGE_EXTS,
-    REAL_PROMPTS,
-    AI_PROMPTS,
     FoodAuthenticityDetector,
     verdict,
 )
 
-# Muat variabel environment dari .env jika ada
-load_dotenv()
+# --- DUKUNGAN HUGGING FACE ZEROGPU ---
+try:
+    import spaces
+
+    HAS_SPACES = True
+except (ImportError, ModuleNotFoundError):
+    HAS_SPACES = False
 
 
-# --- STREAMLIT CACHING ---
-@st.cache_resource(show_spinner="Sedang mengunduh dan memuat model AI (CLIP)...")
-def get_detector(model_name: str, device: str) -> FoodAuthenticityDetector:
-    return FoodAuthenticityDetector(model_name=model_name, device=device)
+def gpu_decorator(fn):
+    """Menghubungkan fungsi ke dynamic Nvidia GPU jika berjalan di Hugging Face ZeroGPU."""
+    if HAS_SPACES:
+        return spaces.GPU(fn)
+    return fn
 
 
-# --- HALAMAN UTAMA STREAMLIT ---
-def main():
-    st.set_page_config(
-        page_title="Tenantify - Food Authenticity Detector",
-        page_icon="🍽️",
-        layout="wide",
-    )
+# Inisialisasi detector (awal di CPU; dinamis berpindah ke GPU saat inferensi di ZeroGPU)
+detector = FoodAuthenticityDetector(model_name=DEFAULT_MODEL_NAME, device="cpu")
 
-    st.title("🍽️ Tenantify — AI Food Authenticity Detector")
-    st.caption("Verifikasi keaslian foto menu & makanan tenant: mendeteksi foto asli vs buatan generator AI (Midjourney, DALL-E, dsb.) dengan OpenAI CLIP zero-shot classification.")
 
-    # --- SIDEBAR PENGATURAN ---
-    st.sidebar.header("⚙️ Pengaturan Model")
-
-    detected_device = "cuda" if torch.cuda.is_available() else "cpu"
-    device_choice = st.sidebar.radio(
-        "Pilih Komputasi (Device):",
-        options=["cuda", "cpu"] if torch.cuda.is_available() else ["cpu"],
-        index=0,
-        help="CUDA menggunakan GPU untuk inferensi lebih cepat jika tersedia.",
-    )
-    st.sidebar.caption(f"Hardware terdeteksi: **{detected_device.upper()}**")
-
-    model_name = st.sidebar.selectbox(
-        "Model Hugging Face:",
-        options=[
-            "openai/clip-vit-base-patch32",
-            "openai/clip-vit-large-patch14",
-        ],
-        index=0,
-    )
-
-    threshold = st.sidebar.slider(
-        "Ambang Keyakinan (Threshold):",
-        min_value=0.50,
-        max_value=0.95,
-        value=DEFAULT_THRESHOLD,
-        step=0.05,
-        help="Jika probabilitas tertinggi di bawah nilai ini, hasil dinyatakan 'TIDAK YAKIN'.",
-    )
-
-    show_detail = st.sidebar.checkbox(
-        "Tampilkan detail skor per prompt",
-        value=True,
-    )
-
-    # Inisialisasi detector
-    try:
-        detector = get_detector(model_name=model_name, device=device_choice)
-    except Exception as e:
-        st.error(f"Gagal memuat model: {e}")
-        return
-
-    # --- TABS INTERFACE ---
-    tab1, tab2, tab3 = st.tabs(["📤 Upload Satu Foto", "📁 Batch Processing", "🧪 Uji Gambar Demo"])
-
-    # === TAB 1: SINGLE IMAGE ===
-    with tab1:
-        st.subheader("Analisis Satu Foto Makanan")
-        uploaded_file = st.file_uploader(
-            "Pilih foto makanan (.jpg, .png, .webp):",
-            type=["jpg", "jpeg", "png", "webp", "bmp"],
-            key="single_uploader",
+@gpu_decorator
+def analyze_food_authenticity(
+    image: Optional[Image.Image],
+    threshold: float = DEFAULT_THRESHOLD,
+) -> tuple[str, dict[str, float], dict]:
+    """
+    Fungsi inferensi utama:
+    - Mendeteksi apakah gambar adalah foto makanan asli atau buatan AI.
+    - Menghasilkan label, distribusi probabilitas, dan respon JSON terstruktur.
+    """
+    if image is None:
+        return (
+            "⚠️ Silakan unggah foto makanan terlebih dahulu.",
+            {},
+            {"error": "No image provided"},
         )
 
-        if uploaded_file is not None:
-            col1, col2 = st.columns([1, 1])
+    # Jalankan prediksi CLIP
+    result = detector.predict(image)
+    label, status = verdict(result, threshold=threshold)
 
-            image = detector.load_image(uploaded_file)
-            if image is None:
-                st.error("Gagal membaca file gambar. Pastikan format file valid.")
-            else:
-                with col1:
-                    st.image(image, caption="Foto yang diuji", use_container_width=True)
+    # Format Markdown Banner
+    if status == "success":
+        color = "#16a34a"  # Green
+        status_text = "MAKANAN ASLI TERVERIFIKASI"
+    elif status == "error":
+        color = "#dc2626"  # Red
+        status_text = "TERDETEKSI GAMBAR BUATAN AI"
+    else:
+        color = "#ca8a04"  # Yellow
+        status_text = "HASIL TIDAK YAKIN (PERLU REVIEW MANUAL)"
 
-                with col2:
-                    with st.spinner("Menganalisis karakteristik visual..."):
-                        res = detector.predict(image)
-                        label, status = verdict(res, threshold)
+    verdict_md = f"""
+    <div style="background-color: {color}15; border-left: 6px solid {color}; padding: 12px 18px; border-radius: 8px; margin-bottom: 12px;">
+        <h2 style="color: {color}; margin: 0; font-size: 20px;">{label}</h2>
+        <p style="margin: 4px 0 0 0; color: #4b5563; font-weight: 500;">Status: {status_text} | Keyakinan Maks: {max(result['real'], result['ai']):.1%}</p>
+    </div>
+    """
 
-                    st.markdown("### Hasil Deteksi")
-                    if status == "success":
-                        st.success(f"## {label}")
-                    elif status == "error":
-                        st.error(f"## {label}")
-                    else:
-                        st.warning(f"## {label}")
+    # Format untuk gr.Label chart
+    label_distribution = {
+        "Makanan Asli (Real Photo)": result["real"],
+        "Buatan AI (AI Generated)": result["ai"],
+    }
 
-                    st.markdown("#### Probabilitas:")
-                    col_real, col_ai = st.columns(2)
-                    col_real.metric("📸 Probabilitas Asli", f"{res['real']:.1%}")
-                    col_ai.metric("🤖 Probabilitas AI", f"{res['ai']:.1%}")
+    # Format JSON untuk konsumsi Fullstack Developer / API Client
+    api_response = {
+        "success": True,
+        "verdict": label,
+        "status": status,
+        "is_authentic": (result["real"] >= threshold),
+        "confidence": {
+            "real": round(result["real"], 4),
+            "ai": round(result["ai"], 4),
+        },
+        "threshold_used": threshold,
+    }
 
-                    st.progress(res["real"], text=f"Skor Makanan Asli: {res['real']:.1%}")
+    return verdict_md, label_distribution, api_response
 
-                    if show_detail:
-                        with st.expander("🔍 Detail Skor per Prompt CLIP", expanded=False):
-                            df_prompts = pd.DataFrame(
-                                [
-                                    {"Prompt": p, "Skor": f"{score:.2%}", "Tipe": "Makanan Asli" if p in REAL_PROMPTS else "Buatan AI"}
-                                    for p, score in res["per_prompt"].items()
-                                ]
-                            )
-                            st.dataframe(df_prompts, use_container_width=True, hide_index=True)
 
-    # === TAB 2: BATCH PROCESSING ===
-    with tab2:
-        st.subheader("Analisis Banyak Foto Sekaligus")
-        uploaded_files = st.file_uploader(
-            "Pilih beberapa file foto makanan:",
-            type=["jpg", "jpeg", "png", "webp", "bmp"],
-            accept_multiple_files=True,
-            key="batch_uploader",
-        )
+# Kumpulkan contoh foto sampel jika ada di folder_foto
+demo_examples = []
+demo_folder = Path("folder_foto")
+if demo_folder.is_dir():
+    sample_paths = sorted(
+        [
+            str(p)
+            for p in demo_folder.iterdir()
+            if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+        ]
+    )
+    # Ambil beberapa contoh sampel real dan AI
+    demo_examples = [[p, DEFAULT_THRESHOLD] for p in sample_paths[:6]]
 
-        if uploaded_files:
-            if st.button("🚀 Mulai Analisis Batch", key="btn_batch"):
-                progress_bar = st.progress(0)
-                status_text = st.empty()
 
-                rows = []
-                for idx, file in enumerate(uploaded_files):
-                    status_text.text(f"Memproses {idx + 1}/{len(uploaded_files)}: {file.name}")
-                    img = detector.load_image(file)
-                    if img is None:
-                        continue
+# --- TAMPILAN GRADIO BLOCKS ---
+custom_css = """
+footer {visibility: hidden}
+#logo-text {margin-bottom: 0px}
+"""
 
-                    res = detector.predict(img)
-                    label, _ = verdict(res, threshold)
-                    rows.append({
-                        "Nama File": file.name,
-                        "Hasil": label,
-                        "Prob Asli (%)": round(res["real"] * 100, 2),
-                        "Prob AI (%)": round(res["ai"] * 100, 2),
-                    })
-                    progress_bar.progress((idx + 1) / len(uploaded_files))
+with gr.Blocks(
+    title="Tenantify — AI Food Authenticity Detector",
+    theme=gr.themes.Soft(primary_hue="indigo", neutral_hue="slate"),
+    css=custom_css,
+) as demo:
+    gr.Markdown(
+        """
+        # 🍽️ Tenantify — AI Food Authenticity Detector
+        Verifikasi keaslian foto menu & makanan tenant untuk platform **Tenantify**.
+        Mendeteksi foto jepretan asli (*real food photo*) vs rekayasa generator AI (*Midjourney, DALL-E, Stable Diffusion*) menggunakan **OpenAI CLIP Zero-Shot Classification**.
+        """,
+        elem_id="logo-text",
+    )
 
-                status_text.text("Analisis batch selesai! 🎉")
-                if rows:
-                    df_results = pd.DataFrame(rows)
-                    st.dataframe(df_results, use_container_width=True)
-
-                    # Export CSV
-                    csv = df_results.to_csv(index=False).encode("utf-8")
-                    st.download_button(
-                        label="📥 Download Hasil Analisis (.csv)",
-                        data=csv,
-                        file_name="hasil_deteksi_tenantify.csv",
-                        mime="text/csv",
-                    )
-
-    # === TAB 3: DEMO FOTO ===
-    with tab3:
-        st.subheader("Coba dengan Sampel Foto Proyek")
-        folder_demo = Path("folder_foto")
-        if folder_demo.is_dir():
-            sample_files = sorted(
-                [p for p in folder_demo.iterdir() if p.suffix.lower() in IMAGE_EXTS]
+    with gr.Row():
+        with gr.Column(scale=5):
+            input_image = gr.Image(
+                type="pil",
+                label="Unggah Foto Makanan",
+                sources=["upload", "clipboard"],
             )
-            if sample_files:
-                selected_sample = st.selectbox(
-                    "Pilih sampel foto dari folder_foto:",
-                    options=sample_files,
-                    format_func=lambda x: x.name,
+
+            with gr.Accordion("⚙️ Pengaturan Tambahan", open=False):
+                threshold_slider = gr.Slider(
+                    minimum=0.50,
+                    maximum=0.95,
+                    value=DEFAULT_THRESHOLD,
+                    step=0.05,
+                    label="Ambang Batas Keyakinan (Threshold)",
+                    info="Jika probabilitas di bawah batas ini, sistem akan menandai sebagai 'TIDAK YAKIN' untuk direview manual.",
                 )
 
-                if selected_sample and st.button("🔍 Uji Sampel Ini"):
-                    c1, c2 = st.columns([1, 1])
-                    img = detector.load_image(selected_sample)
-                    if img is not None:
-                        with c1:
-                            st.image(img, caption=selected_sample.name, use_container_width=True)
-                        with c2:
-                            with st.spinner("Menganalisis..."):
-                                res = detector.predict(img)
-                                label, status = verdict(res, threshold)
-                            st.markdown("### Hasil Deteksi")
-                            if status == "success":
-                                st.success(f"## {label}")
-                            elif status == "error":
-                                st.error(f"## {label}")
-                            else:
-                                st.warning(f"## {label}")
+            btn_submit = gr.Button("🔍 Analisis Foto", variant="primary", size="lg")
+            btn_clear = gr.ClearButton(components=[input_image], value="🗑️ Reset")
 
-                            st.metric("Probabilitas Asli", f"{res['real']:.1%}")
-                            st.metric("Probabilitas AI", f"{res['ai']:.1%}")
-            else:
-                st.info("Tidak ada gambar di dalam folder 'folder_foto'.")
-        else:
-            st.info("Folder sampel 'folder_foto' tidak ditemukan di workspace.")
+        with gr.Column(scale=5):
+            verdict_output = gr.Markdown(
+                label="Hasil Verifikasi",
+                value="*Unggah foto dan klik 'Analisis Foto' untuk melihat hasil.*",
+            )
+            chart_output = gr.Label(
+                label="Skor Probabilitas",
+                num_top_classes=2,
+            )
+            json_output = gr.JSON(
+                label="Data Response (JSON format untuk Fullstack Developer)",
+            )
 
+    # Event handlers
+    btn_submit.click(
+        fn=analyze_food_authenticity,
+        inputs=[input_image, threshold_slider],
+        outputs=[verdict_output, chart_output, json_output],
+        api_name="predict",
+    )
+
+    # Bagian contoh sampel
+    if demo_examples:
+        gr.Markdown("### 🧪 Contoh Sampel Foto:")
+        gr.Examples(
+            examples=demo_examples,
+            inputs=[input_image, threshold_slider],
+            outputs=[verdict_output, chart_output, json_output],
+            fn=analyze_food_authenticity,
+            cache_examples=False,
+        )
+
+    # Panduan API untuk Developer
+    with gr.Accordion("🔌 Panduan API untuk Fullstack Developer (Gradio API Client)", open=False):
+        gr.Markdown(
+            """
+            Hugging Face Spaces dengan Gradio otomatis menyediakan API endpoint gratis!
+            
+            #### 1. Cara panggil dari JavaScript / TypeScript (Next.js / Node.js):
+            ```bash
+            npm install @gradio/client
+            ```
+            ```javascript
+            import { Client } from "@gradio/client";
+
+            const client = await Client.connect("username-kamu/nama-space");
+            const result = await client.predict("/predict", {
+                image: imageBlob,
+                threshold: 0.70,
+            });
+
+            console.log(result.data[2]); // JSON output { success: true, verdict: "...", is_authentic: true }
+            ```
+
+            #### 2. Cara panggil dari Python:
+            ```bash
+            pip install gradio_client
+            ```
+            ```python
+            from gradio_client import Client, handle_file
+
+            client = Client("username-kamu/nama-space")
+            result = client.predict(
+                image=handle_file("path/to/food.jpg"),
+                threshold=0.70,
+                api_name="/predict"
+            )
+            print(result)
+            ```
+            """
+        )
 
 if __name__ == "__main__":
-    main()
-
+    port = int(os.getenv("PORT", 7860))
+    demo.queue().launch(server_name="0.0.0.0", server_port=port)
